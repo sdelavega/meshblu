@@ -25,9 +25,6 @@ describe 'MeshbluWebsocketHandler', ->
     it 'should assign a socket.id', ->
       expect(@socket.id).to.exist
 
-    it 'should call connect', ->
-      expect(@messageIOClient.start).to.have.been.called
-
     it 'should register message event', ->
       expect(@socket.on).to.have.been.calledWith 'message'
 
@@ -229,7 +226,7 @@ describe 'MeshbluWebsocketHandler', ->
         expect(@sut.sendFrame).to.have.been.calledWith 'ready', uuid: '1234', token: 'abcd', status: 200
 
       it 'should emit subscribe to my uuid received and broadcast', ->
-        expect(@messageIOClient.subscribe).to.have.been.calledWith '1234', ['received']
+        expect(@messageIOClient.subscribe).to.have.been.calledWith '1234', ['received', 'config', 'data']
 
   describe 'status', ->
     beforeEach ->
@@ -274,7 +271,9 @@ describe 'MeshbluWebsocketHandler', ->
     describe 'when authDevice yields a device', ->
       beforeEach ->
         @getDevice = sinon.stub().yields null, uuid: '5431'
-        @securityImpl = canReceive: sinon.stub().yields null, true
+        @securityImpl =
+          canReceive: sinon.stub().yields null, true
+          canReceiveAs: sinon.stub().yields null, false
         @sut = new MeshbluWebsocketHandler MessageIOClient: @MessageIOClient, securityImpl: @securityImpl, getDevice: @getDevice, meshbluEventEmitter: @meshbluEventEmitter
         @sut.messageIOClient = @messageIOClient
         @sut.authedDevice = something: true
@@ -291,7 +290,9 @@ describe 'MeshbluWebsocketHandler', ->
     describe 'when the device is owned by the owner', ->
       beforeEach ->
         @getDevice = sinon.stub().yields null, uuid: '5431', owner: '1234'
-        @securityImpl = canReceive: sinon.stub().yields null, true
+        @securityImpl =
+          canReceive: sinon.stub().yields null, true
+          canReceiveAs: sinon.stub().yields null, true
         @sut = new MeshbluWebsocketHandler authDevice: @authDevice, MessageIOClient: @MessageIOClient, securityImpl: @securityImpl, getDevice: @getDevice, meshbluEventEmitter: @meshbluEventEmitter
         @sut.authedDevice = uuid: '1234'
         @sut.messageIOClient = @messageIOClient
@@ -300,7 +301,7 @@ describe 'MeshbluWebsocketHandler', ->
         @sut.subscribe uuid: '5431'
 
       it 'should call subscribe _bc', ->
-        expect(@messageIOClient.subscribe).to.have.been.calledWith '5431', ["broadcast", "received", "sent"]
+        expect(@messageIOClient.subscribe).to.have.been.calledWith '5431', ["broadcast", "received", "sent", "config", "data"]
 
   describe 'unsubscribe', ->
     describe 'when called', ->

@@ -37,16 +37,13 @@ class MeshbluWebsocketHandler extends EventEmitter
     @messageIOClient.on 'message', @onSocketMessage
     @messageIOClient.on 'config', @onSocketConfig
     @messageIOClient.on 'data', @onSocketData
-    @messageIOClient.start()
 
   onClose: (event) =>
     debug 'on.close'
     @authDevice @uuid, @token, (error, device) =>
       return if error?
       @setOnlineStatus device, false
-      @messageIOClient.unsubscribe @uuid
-      @messageIOClient.unsubscribe "#{@uuid}_bc"
-      # @messageIOClient = null
+      @messageIOClient.close()
 
   onMessage: (event) =>
     debug 'onMessage', event.data
@@ -56,6 +53,7 @@ class MeshbluWebsocketHandler extends EventEmitter
       @rateLimit @socket.id, type, (error) =>
         return @closeWithError error, [type,data], 429 if error?
         return @emit type, data if type == 'identity'
+        return @emit type, data if type == 'register'
 
         @authDevice @uuid, @token, (error, authedDevice)=>
           return @sendError 'unauthorized', [type, data], 401 if error?
@@ -89,7 +87,7 @@ class MeshbluWebsocketHandler extends EventEmitter
       return @sendFrame 'notReady', message: 'unauthorized', status: 401 if error?
       @sendFrame 'ready', uuid: @uuid, token: @token, status: 200
       @setOnlineStatus device, true
-      @messageIOClient.subscribe @uuid, ['received']
+      @messageIOClient.subscribe @uuid, ['received', 'config', 'data']
 
   message: (data) =>
     debug 'message', data
@@ -212,19 +210,27 @@ class MeshbluWebsocketHandler extends EventEmitter
       @securityImpl.canReceive @authedDevice, subscribedDevice, (error, permission) =>
         return callback error if error?
 
-        requestedSubscriptionTypes = data.types
+        requestedSubscriptionTypes = data.types ? ['broadcast', 'received', 'sent']
+
         authorizedSubscriptionTypes = []
         authorizedSubscriptionTypes.push 'broadcast' if permission
 
-        if subscribedDevice.owner? && subscribedDevice.owner == @authedDevice.uuid
-          authorizedSubscriptionTypes.push 'received'
-          authorizedSubscriptionTypes.push 'sent'
+        @securityImpl.canReceiveAs @authedDevice, subscribedDevice, (error, permission) =>
+          return callback error if error?
 
-        requestedSubscriptionTypes = requestedSubscriptionTypes ? authorizedSubscriptionTypes
-        subscriptionTypes = _.intersection(requestedSubscriptionTypes, authorizedSubscriptionTypes)
+          if permission
+            authorizedSubscriptionTypes.push 'broadcast'
+            authorizedSubscriptionTypes.push 'received'
+            authorizedSubscriptionTypes.push 'sent'
+            authorizedSubscriptionTypes.push 'config'
+            authorizedSubscriptionTypes.push 'data'
 
-        @messageIOClient.subscribe subscribedDevice.uuid, subscriptionTypes
-        callback()
+          requestedSubscriptionTypes = requestedSubscriptionTypes ? authorizedSubscriptionTypes
+          requestedSubscriptionTypes = _.union requestedSubscriptionTypes, ['config', 'data']
+          subscriptionTypes = _.intersection(requestedSubscriptionTypes, authorizedSubscriptionTypes)
+
+          @messageIOClient.subscribe subscribedDevice.uuid, subscriptionTypes
+          callback()
 
   #socketio event handlers
   onSocketMessage: (data) =>

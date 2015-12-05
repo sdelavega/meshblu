@@ -1,0 +1,58 @@
+async = require 'async'
+Publisher = require '../../lib/Publisher'
+{createClient} = require '../../lib/redis'
+
+describe 'Publisher', ->
+  beforeEach ->
+    @redis = createClient()
+
+  describe '->publish', ->
+    describe 'when called with undefined', ->
+      beforeEach (done) ->
+        @sut = new Publisher namespace: 'test'
+        @redis.subscribe 'test:received:mah-uuid', done
+
+      beforeEach (done) ->
+        @onMessage = sinon.spy()
+        @redis.once 'message', @onMessage
+        @sut.publish 'received', 'mah-uuid', undefined, (@error) => done()
+
+      it 'should not publish into redis', ->
+        expect(@onMessage).not.to.have.been.called
+
+      it 'should have an error', ->
+        expect(@error.message).to.equal 'Invalid message'
+
+    describe 'when called', ->
+      beforeEach (done) ->
+        @sut = new Publisher namespace: 'test'
+        @redis.subscribe 'test:received:mah-uuid', done
+
+      beforeEach (done) ->
+        @redis.once 'message', (@channel,@message) => done()
+        @sut.publish 'received', 'mah-uuid', bee_sting: 'hey, free honey!'
+
+      it 'should publish into redis', ->
+        expect(JSON.parse @message).to.deep.equal bee_sting: 'hey, free honey!'
+
+      it 'should publish into the correct channel', ->
+        expect(@channel).to.deep.equal 'test:received:mah-uuid'
+
+    describe 'when called again', ->
+      beforeEach (done) ->
+        @sut = new Publisher namespace: 'testy'
+        @redis.subscribe 'testy:sent:yer-id', done
+
+      beforeEach (done) ->
+        async.parallel [
+          (callback) => @redis.once 'message', (@channel, @message) => callback()
+          async.apply @sut.publish, 'sent', 'yer-id', carnivorousPlant: 'Feed me, Seymour!'
+        ], done
+
+      it 'should publish into redis', ->
+        expect(@message).to.exist
+        expect(JSON.parse @message).to.deep.equal carnivorousPlant: 'Feed me, Seymour!'
+
+      it 'should publish into the correct channel', ->
+        expect(@channel).to.exist
+        expect(@channel).to.deep.equal 'testy:sent:yer-id'
