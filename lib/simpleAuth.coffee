@@ -1,4 +1,3 @@
-util = require "./util"
 async = require 'async'
 bcrypt = require "bcrypt"
 _ = require "lodash"
@@ -12,8 +11,7 @@ class SimpleAuth
     @uuidAliasResolver = new UUIDAliasResolver {}, {@redis, aliasServerUri}
 
   asyncCallback: (error, result, callback) =>
-    # _.defer callback, error, result
-    callback error, result
+    _.defer callback, error, result
 
   _checkLists: (fromDevice, toDevice, whitelist, blacklist, openByDefault, callback) =>
     @_resolveList whitelist, (error, resolvedWhitelist) =>
@@ -54,10 +52,7 @@ class SimpleAuth
 
       return @asyncCallback(null, true, callback) if fromDevice.uuid == toDevice.uuid
 
-      if toDevice.owner?
-        return @asyncCallback(null, true, callback) if toDevice.owner == fromDevice.uuid
-      else
-        return @asyncCallback(null, true, callback) if util.sameLAN(fromDevice.ipAddress, toDevice.ipAddress)
+      return @asyncCallback(null, true, callback) if toDevice.owner == fromDevice.uuid if toDevice.owner?
 
       if message?.token
         return @authDevice(

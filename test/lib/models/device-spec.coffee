@@ -16,10 +16,9 @@ describe 'Device', ->
       @config = token: 'totally-secret-yo'
       @redis =
         get: sinon.stub()
+        set: sinon.stub()
         del: sinon.stub()
-        sadd: sinon.stub()
-        srem: sinon.stub()
-        sismember: sinon.stub()
+        exists: sinon.stub()
         setex: sinon.stub()
 
       @redis.get.yields null
@@ -298,7 +297,7 @@ describe 'Device', ->
 
       describe 'when called with token mystery-token', ->
         beforeEach (done) ->
-          @sut.storeToken 'mystery-token', (error) =>
+          @sut.storeToken {token: 'mystery-token'}, (error) =>
             return done error if error
             @sut.fetch (error, attributes) =>
               @updatedDevice = attributes
@@ -311,6 +310,31 @@ describe 'Device', ->
 
         it 'should add a timestamp to the token', ->
           expect(@token.createdAt?.getTime()).to.be.closeTo Date.now(), 1000
+
+        it 'should store the token in the database', (done) ->
+          @devices.findOne uuid: @uuid, (error, device) =>
+            return done error if error?
+            token = @updatedDevice.meshblu?.tokens?[@hashedToken]
+            expect(token).to.exist
+            done()
+
+      describe 'when called with token mystery-token and a tag', ->
+        beforeEach (done) ->
+          @sut.storeToken {token: 'mystery-token', tag: 'mystery'}, (error) =>
+            return done error if error
+            @sut.fetch (error, attributes) =>
+              @updatedDevice = attributes
+              @token = @updatedDevice.meshblu?.tokens?[@hashedToken]
+              done(error)
+
+        it 'should hash the token and add it to the attributes', ->
+          expect(@updatedDevice.meshblu?.tokens).to.include.keys @hashedToken
+
+        it 'should add a timestamp to the token', ->
+          expect(@token.createdAt?.getTime()).to.be.closeTo Date.now(), 1000
+
+        it 'should add a tag to the token', ->
+          expect(@token.tag).to.equal 'mystery'
 
         it 'should store the token in the database', (done) ->
           @devices.findOne uuid: @uuid, (error, device) =>
@@ -497,14 +521,11 @@ describe 'Device', ->
     describe 'when redis client is available', ->
       beforeEach (done) ->
         @sut = new Device uuid: 'a-uuid', @dependencies
-        @sut._storeTokenInCache 'foo', (@error, @result) => done()
-        @redis.sadd.yield null, 1
+        @sut._storeTokenInCache 'foo', (@error) => done()
+        @redis.set.yield null, 'OK'
 
-      it 'should return the result of sadd', ->
-        expect(@result).to.equal 1
-
-      it 'should call redis.sadd', ->
-        expect(@redis.sadd).to.have.been.calledWith 'tokens:a-uuid', 'foo'
+      it 'should call redis.set', ->
+        expect(@redis.set).to.have.been.calledWith 'meshblu-token-cache:a-uuid:foo', ''
 
   describe '-> removeTokenFromCache', ->
     describe 'when redis client is not available', ->
@@ -521,13 +542,10 @@ describe 'Device', ->
         @sut = new Device uuid: 'a-uuid', @dependencies
         @sut._hashToken = sinon.stub().yields null, 'hashed-foo'
         @sut.removeTokenFromCache 'foo', (@error, @result) => done()
-        @redis.srem.yield null, 1
-
-      it 'should return the result of srem', ->
-        expect(@result).to.equal 1
+        @redis.del.yield null
 
       it 'should call redis.srem', ->
-        expect(@redis.srem).to.have.been.calledWith 'tokens:a-uuid', 'hashed-foo'
+        expect(@redis.del).to.have.been.calledWith 'meshblu-token-cache:a-uuid:hashed-foo'
 
   describe '-> _storeInvalidTokenInBlacklist', ->
     describe 'when redis client is not available', ->
@@ -543,13 +561,10 @@ describe 'Device', ->
       beforeEach (done) ->
         @sut = new Device uuid: 'a-uuid', @dependencies
         @sut._storeInvalidTokenInBlacklist 'foo', (@error, @result) => done()
-        @redis.sadd.yield null, 1
+        @redis.set.yield null
 
-      it 'should return the result of sadd', ->
-        expect(@result).to.equal 1
-
-      it 'should call redis.sadd', ->
-        expect(@redis.sadd).to.have.been.calledWith 'tokens:blacklist:a-uuid', 'foo'
+      it 'should call redis.set', ->
+        expect(@redis.set).to.have.been.calledWith 'meshblu-token-black-list:a-uuid:foo'
 
   describe '-> _verifyTokenInCache', ->
     describe 'when redis client is not available', ->
@@ -566,25 +581,25 @@ describe 'Device', ->
         beforeEach (done) ->
           @sut = new Device uuid: 'a-uuid', @dependencies
           @sut._verifyTokenInCache 'foo', (@error, @result) => done()
-          @redis.sismember.yield null, 1
+          @redis.exists.yield null, 1
 
-        it 'should return the result of sismember', ->
+        it 'should return the result of exists', ->
           expect(@result).to.equal 1
 
-        it 'should call redis.sismember', ->
-          expect(@redis.sismember).to.have.been.calledWith 'tokens:a-uuid', 'DnN1cXdfiInpeLs9VjOXM+C/1ow2nGv46TGrevRN3a0='
+        it 'should call redis.exists', ->
+          expect(@redis.exists).to.have.been.calledWith 'meshblu-token-cache:a-uuid:DnN1cXdfiInpeLs9VjOXM+C/1ow2nGv46TGrevRN3a0='
 
       describe 'when the member is not available in the set', ->
         beforeEach (done) ->
           @sut = new Device uuid: 'a-uuid', @dependencies
           @sut._verifyTokenInCache 'foo', (@error, @result) => done @error
-          @redis.sismember.yield null, 0
+          @redis.exists.yield null, 0
 
-        it 'should return the result of sismember', ->
+        it 'should return the result of exists', ->
           expect(@result).to.equal 0
 
-        it 'should call redis.sismember', ->
-          expect(@redis.sismember).to.have.been.calledWith 'tokens:a-uuid', 'DnN1cXdfiInpeLs9VjOXM+C/1ow2nGv46TGrevRN3a0='
+        it 'should call redis.exists', ->
+          expect(@redis.exists).to.have.been.calledWith 'meshblu-token-cache:a-uuid:DnN1cXdfiInpeLs9VjOXM+C/1ow2nGv46TGrevRN3a0='
 
   describe '-> _isTokenInBlacklist', ->
     describe 'when redis client is not available', ->
@@ -601,25 +616,25 @@ describe 'Device', ->
         beforeEach (done) ->
           @sut = new Device uuid: 'a-uuid', @dependencies
           @sut._isTokenInBlacklist 'foo', (@error, @result) => done()
-          @redis.sismember.yield null, 1
+          @redis.exists.yield null, 1
 
-        it 'should return the result of sismember', ->
+        it 'should return the result of exists', ->
           expect(@result).to.equal 1
 
-        it 'should call redis.sismember', ->
-          expect(@redis.sismember).to.have.been.calledWith 'tokens:blacklist:a-uuid', 'foo'
+        it 'should call redis.exists', ->
+          expect(@redis.exists).to.have.been.calledWith 'meshblu-token-black-list:a-uuid:foo'
 
       describe 'when the member is not available in the set', ->
         beforeEach (done) ->
           @sut = new Device uuid: 'a-uuid', @dependencies
           @sut._isTokenInBlacklist 'foo', (@error, @result) => done()
-          @redis.sismember.yield null, 0
+          @redis.exists.yield null, 0
 
-        it 'should return the result of sismember', ->
+        it 'should return the result of exists', ->
           expect(@result).to.equal 0
 
-        it 'should call redis.sismember', ->
-          expect(@redis.sismember).to.have.been.calledWith 'tokens:blacklist:a-uuid', 'foo'
+        it 'should call redis.exists', ->
+          expect(@redis.exists).to.have.been.calledWith 'meshblu-token-black-list:a-uuid:foo'
 
   describe '-> resetToken', ->
     beforeEach ->
